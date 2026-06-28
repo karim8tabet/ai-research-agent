@@ -1,0 +1,8 @@
+anthropic
+requests
+flask
+python-dotenv
+beautifulsoup4
+chromadb
+pypdf
+markdown

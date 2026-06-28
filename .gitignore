@@ -1,0 +1,5 @@
+.env
+memory.json
+conversations.db
+chroma_db/
+__pycache__/
