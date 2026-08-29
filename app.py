@@ -6,7 +6,7 @@ import os
 import uuid
 
 app = Flask(__name__)
-app.secret_key = os.environ["FLASK_SECRET_KEY"]
+app.secret_key = os.environ.get("FLASK_SECRET_KEY")
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -14,240 +14,276 @@ HTML_PAGE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Agent</title>
+    <title>Research Agent</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f1117;
-            color: #e2e8f0;
-            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+            background: #fff;
+            color: #111;
+            height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            max-width: 680px;
+            margin: 0 auto;
+        }
+
+        /* ── Header ── */
+        header {
+            padding: 28px 32px 20px;
+            border-bottom: 1px solid #ebebeb;
+        }
+        header h1 {
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #999;
+        }
+
+        /* ── Thread ── */
+        #thread {
+            overflow-y: auto;
+            padding: 0 32px;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            padding: 48px 16px 80px;
         }
+        #thread::-webkit-scrollbar { width: 0; }
 
-        .container {
-            width: 100%;
-            max-width: 720px;
+        .turn {
+            padding: 28px 0;
+            border-bottom: 1px solid #f2f2f2;
         }
+        .turn:last-child { border-bottom: none; }
 
-        /* Header */
-        header {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-        .logo {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 52px;
-            height: 52px;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            border-radius: 14px;
-            margin-bottom: 16px;
-        }
-        .logo svg { width: 28px; height: 28px; fill: #fff; }
-        header h1 {
-            font-size: 1.75rem;
+        .turn-label {
+            font-size: 0.7rem;
             font-weight: 700;
-            color: #f8fafc;
-            letter-spacing: -0.02em;
-        }
-        header p {
-            margin-top: 6px;
-            font-size: 0.9rem;
-            color: #64748b;
-        }
-
-        /* Ask card */
-        .card {
-            background: #1e2130;
-            border: 1px solid #2d3148;
-            border-radius: 16px;
-            padding: 28px;
-            margin-bottom: 20px;
-        }
-
-        .input-row {
-            display: flex;
-            gap: 10px;
-        }
-        .input-row input[type="text"] {
-            flex: 1;
-            background: #0f1117;
-            border: 1px solid #2d3148;
-            border-radius: 10px;
-            padding: 12px 16px;
-            font-size: 0.95rem;
-            color: #e2e8f0;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        .input-row input[type="text"]::placeholder { color: #475569; }
-        .input-row input[type="text"]:focus { border-color: #6366f1; }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            color: #fff;
-            border: none;
-            border-radius: 10px;
-            padding: 12px 22px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: opacity 0.2s, transform 0.1s;
-        }
-        .btn-primary:hover { opacity: 0.9; }
-        .btn-primary:active { transform: scale(0.98); }
-
-        /* Answer */
-        .answer-card {
-            background: #1e2130;
-            border: 1px solid #2d3148;
-            border-radius: 16px;
-            padding: 28px;
-            margin-bottom: 20px;
-        }
-        .answer-label {
-            font-size: 0.75rem;
-            font-weight: 600;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.14em;
             text-transform: uppercase;
-            color: #6366f1;
-            margin-bottom: 14px;
+            margin-bottom: 10px;
         }
-        .answer-body {
-            font-size: 0.95rem;
-            line-height: 1.7;
-            color: #cbd5e1;
+        .turn.user .turn-label { color: #bbb; }
+        .turn.agent .turn-label { color: #111; }
+
+        .turn-body {
+            font-size: 0.97rem;
+            line-height: 1.72;
+            color: #222;
         }
-        .answer-body p { margin-bottom: 12px; }
-        .answer-body p:last-child { margin-bottom: 0; }
-        .answer-body h1, .answer-body h2, .answer-body h3 {
-            color: #f1f5f9;
-            margin: 18px 0 8px;
+        .turn.user .turn-body {
+            color: #666;
+            font-size: 0.93rem;
+        }
+
+        .turn-body p { margin-bottom: 10px; }
+        .turn-body p:last-child { margin-bottom: 0; }
+        .turn-body h1, .turn-body h2, .turn-body h3 {
             font-weight: 600;
+            margin: 16px 0 6px;
+            letter-spacing: -0.01em;
         }
-        .answer-body ul, .answer-body ol {
-            margin: 8px 0 12px 20px;
-        }
-        .answer-body li { margin-bottom: 4px; }
-        .answer-body code {
-            background: #0f1117;
-            border: 1px solid #2d3148;
-            border-radius: 5px;
-            padding: 2px 6px;
-            font-size: 0.85em;
-            color: #a5b4fc;
+        .turn-body ul, .turn-body ol { margin: 8px 0 10px 18px; }
+        .turn-body li { margin-bottom: 4px; }
+        .turn-body code {
             font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.83em;
+            background: #f5f5f5;
+            border-radius: 4px;
+            padding: 2px 6px;
         }
-        .answer-body pre {
-            background: #0f1117;
-            border: 1px solid #2d3148;
-            border-radius: 10px;
+        .turn-body pre {
+            background: #f5f5f5;
+            border-radius: 8px;
             padding: 16px;
             overflow-x: auto;
             margin: 12px 0;
         }
-        .answer-body pre code {
-            background: none;
-            border: none;
-            padding: 0;
-            font-size: 0.88em;
-        }
-        .answer-body table {
-            border-collapse: collapse;
-            width: 100%;
-            margin: 14px 0;
-            font-size: 0.9em;
-        }
-        .answer-body th, .answer-body td {
-            border: 1px solid #2d3148;
-            padding: 10px 14px;
-            text-align: left;
-        }
-        .answer-body th {
-            background: #161827;
-            color: #a5b4fc;
-            font-weight: 600;
-        }
-        .answer-body tr:nth-child(even) td { background: #191c2b; }
+        .turn-body pre code { background: none; padding: 0; font-size: 0.88em; }
+        .turn-body table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9em; }
+        .turn-body th, .turn-body td { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
+        .turn-body th { background: #fafafa; font-weight: 600; }
 
-        /* Footer actions */
-        .footer-row {
+        /* Thinking dots */
+        .thinking {
+            display: none;
+            padding: 28px 0;
+        }
+        .thinking.visible { display: block; }
+        .thinking-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #111;
+            margin-bottom: 12px;
+        }
+        .dots { display: flex; gap: 5px; }
+        .dots span {
+            width: 6px; height: 6px;
+            background: #ccc;
+            border-radius: 50%;
+            animation: pulse 1.4s infinite;
+        }
+        .dots span:nth-child(2) { animation-delay: 0.2s; }
+        .dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes pulse {
+            0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+            40% { opacity: 1; transform: scale(1); }
+        }
+
+        /* ── Input ── */
+        footer {
+            border-top: 1px solid #ebebeb;
+            padding: 20px 32px;
+        }
+        .compose {
             display: flex;
             align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
+            gap: 12px;
         }
-        .btn-secondary {
+        .compose input[type="text"] {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 0.97rem;
+            font-family: inherit;
+            color: #111;
             background: transparent;
-            color: #94a3b8;
-            border: 1px solid #2d3148;
-            border-radius: 10px;
-            padding: 10px 18px;
-            font-size: 0.88rem;
-            font-weight: 500;
+            padding: 4px 0;
+        }
+        .compose input::placeholder { color: #ccc; }
+        .compose button[type="submit"] {
+            background: #111;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 9px 18px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            font-family: inherit;
+            letter-spacing: 0.02em;
             cursor: pointer;
-            transition: background 0.2s, color 0.2s, border-color 0.2s;
+            transition: background 0.15s;
+            white-space: nowrap;
         }
-        .btn-secondary:hover {
-            background: #2d3148;
-            color: #e2e8f0;
-            border-color: #3d4160;
-        }
+        .compose button[type="submit"]:hover { background: #333; }
 
-        .status-msg {
-            font-size: 0.88rem;
-            color: #6366f1;
-            background: #1e2130;
-            border: 1px solid #2d3148;
-            border-radius: 10px;
-            padding: 10px 16px;
+        .footer-meta {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
+        .btn-end {
+            background: none;
+            border: none;
+            font-size: 0.75rem;
+            color: #ccc;
+            font-family: inherit;
+            cursor: pointer;
+            padding: 0;
+            transition: color 0.15s;
+        }
+        .btn-end:hover { color: #999; }
+        .status-msg { font-size: 0.75rem; color: #999; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="logo">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/>
-                </svg>
+    <div id="server-answer" style="display:none">{{ answer | safe if answer else '' }}</div>
+
+    <header>
+        <h1>Research Agent</h1>
+    </header>
+
+    <div id="thread">
+        <div class="thinking" id="thinking">
+            <div class="thinking-label">Agent</div>
+            <div class="dots"><span></span><span></span><span></span></div>
+        </div>
+    </div>
+
+    <footer>
+        <form method="POST" action="/" id="ask-form">
+            <div class="compose">
+                <input type="text" name="question" id="question-input" placeholder="Ask anything…" autocomplete="off" autofocus>
+                <button type="submit">Send</button>
             </div>
-            <h1>AI Research Agent</h1>
-            <p>Ask anything — your agent remembers context across sessions.</p>
-        </header>
-
-        <div class="card">
-            <form method="POST" action="/">
-                <div class="input-row">
-                    <input type="text" name="question" placeholder="Ask your agent a question..." autofocus>
-                    <button type="submit" class="btn-primary">Ask</button>
-                </div>
-            </form>
-        </div>
-
-        {% if answer %}
-        <div class="answer-card">
-            <div class="answer-label">Response</div>
-            <div class="answer-body">{{ answer | safe }}</div>
-        </div>
-        {% endif %}
-
-        <div class="footer-row">
-            <form method="POST" action="/end_session">
-                <button type="submit" class="btn-secondary">End session &amp; save memory</button>
+        </form>
+        <div class="footer-meta">
+            <form method="POST" action="/end_session" style="display:contents">
+                <button type="submit" class="btn-end">End session &amp; save memory</button>
             </form>
             {% if memory_message %}
             <span class="status-msg">{{ memory_message }}</span>
             {% endif %}
         </div>
-    </div>
+    </footer>
+
+    <script>
+    (function () {
+        const STORAGE_KEY = 'agent_thread_v2';
+        const thread = document.getElementById('thread');
+        const thinking = document.getElementById('thinking');
+        const form = document.getElementById('ask-form');
+        const input = document.getElementById('question-input');
+        const serverAnswer = document.getElementById('server-answer').innerHTML.trim();
+
+        function load() {
+            try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+            catch { return []; }
+        }
+        function save(h) { localStorage.setItem(STORAGE_KEY, JSON.stringify(h)); }
+
+        function addTurn(role, html, prepend) {
+            const div = document.createElement('div');
+            div.className = 'turn ' + role;
+            const label = role === 'user' ? 'You' : 'Agent';
+            div.innerHTML = '<div class="turn-label">' + label + '</div><div class="turn-body">' + html + '</div>';
+            if (prepend) {
+                thread.insertBefore(div, thread.firstChild);
+            } else {
+                thread.insertBefore(div, thinking);
+            }
+        }
+
+        function scrollBottom() { thread.scrollTop = thread.scrollHeight; }
+
+        let history = load();
+        history.forEach(m => addTurn(m.role, m.html, false));
+        scrollBottom();
+
+        if (serverAnswer) {
+            const pending = localStorage.getItem('agent_pending');
+            localStorage.removeItem('agent_pending');
+            if (pending) {
+                const safe = pending.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                history.push({ role: 'user', html: safe });
+                addTurn('user', safe);
+            }
+            history.push({ role: 'agent', html: serverAnswer });
+            addTurn('agent', serverAnswer);
+            save(history);
+            scrollBottom();
+        }
+
+        form.addEventListener('submit', function () {
+            const q = input.value.trim();
+            if (!q) return;
+            localStorage.setItem('agent_pending', q);
+            // Show user bubble immediately
+            const safe = q.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            addTurn('user', safe);
+            // Show thinking indicator
+            thinking.classList.add('visible');
+            scrollBottom();
+            // Disable input so it's clear something is happening
+            input.disabled = true;
+            form.querySelector('button').disabled = true;
+        });
+    })();
+    </script>
 </body>
 </html>
 """

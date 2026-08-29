@@ -5,6 +5,8 @@ import os
 from dotenv import load_dotenv
 from memory import load_memory, save_memory
 import chromadb
+import ipaddress
+from urllib.parse import urlparse
 
 load_dotenv()
 
@@ -40,11 +42,23 @@ def search_web(query):
 
 def read_webpage(url):
     try:
+        parsed = urlparse(url)
+        
+        if parsed.scheme not in ("http", "https"):
+            return "This URL scheme is not allowed."
+        
+        hostname = parsed.hostname
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                return "This URL points to a restricted internal address and cannot be accessed."
+        except ValueError:
+            pass
+        
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers, timeout=10)
         
         soup = BeautifulSoup(response.text, "html.parser")
-        
         paragraphs = soup.find_all("p")
         text = " ".join([p.get_text() for p in paragraphs])
         
@@ -108,7 +122,7 @@ tools = [
 def run_agent(user_input, messages):
     messages.append({"role": "user", "content": user_input})
     
-    max_iterations = 5
+    max_iterations = 10
     iteration_count = 0
     
     while True:
