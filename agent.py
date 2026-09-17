@@ -122,7 +122,7 @@ tools = [
 def run_agent(user_input, messages):
     messages.append({"role": "user", "content": user_input})
     
-    max_iterations = 10
+    max_iterations = 5
     iteration_count = 0
     
     while True:
