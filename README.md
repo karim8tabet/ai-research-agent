@@ -110,3 +110,48 @@ The second was SSRF protection on the webpage reading tool, described above unde
 Tech stack
 
 Claude API from Anthropic handles the reasoning and tool use logic. Flask runs the web server and interface. SQLite stores per session conversations. ChromaDB is the vector database used for document search. BeautifulSoup handles webpage text extraction. Serper API provides web search.
+
+
+
+
+
+
+Setup
+
+Clone the repository, then move into the project folder.
+
+git clone https://github.com/karim8tabet/ai-research-agent.git
+cd ai-research-agent
+
+Create a virtual environment and activate it, so the project's Python packages stay separate from everything else on your machine.
+
+python -m venv venv
+source venv/bin/activate
+
+On Windows, activate it with venv\Scripts\activate instead.
+
+Install the required packages.
+
+pip install -r requirements.txt
+
+Copy the environment variable template and fill it in with your own values.
+
+cp .env.example .env
+
+Then open the new .env file and add your actual keys.
+
+ANTHROPIC_API_KEY=your_key_here
+SERPER_API_KEY=your_key_here
+FLASK_SECRET_KEY=your_own_random_string
+
+The Anthropic key comes from the Anthropic console, the Serper key comes from serper.dev, and the Flask secret key can be any random string you make up yourself, it just needs to exist and stay the same between runs.
+
+Build the knowledge base before running the app for the first time. This reads whatever documents are in the documents folder and prepares them for search.
+
+python build_knowledge_base.py
+
+Run the app.
+
+python app.py
+
+Once it's running, open a browser and go to http://localhost:5000 to start using it.
