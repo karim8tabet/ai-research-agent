@@ -1,8 +1,8 @@
-**AI Research Agent**
+# AI Research Agent
 
 A web based AI assistant that can handle multi step research tasks on its own. It can search the web, read full webpages, and pull facts out of private documents, instead of just answering from memory like a typical chatbot.
 
-Built with the Claude API, Flask, and ChromaDB.
+Built with the **Claude API**, **Flask**, and **ChromaDB**.
 
 What this actually does
 
