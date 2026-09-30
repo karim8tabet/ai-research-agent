@@ -6,3 +6,4 @@ beautifulsoup4
 chromadb
 pypdf
 markdown
+nh3

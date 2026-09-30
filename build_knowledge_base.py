@@ -1,18 +1,18 @@
 import os
 import chromadb
 from pypdf import PdfReader
-
+ 
 def read_pdf(filepath):
     reader = PdfReader(filepath)
     text = ""
     for page in reader.pages:
         text += page.extract_text()
     return text
-
+ 
 def read_txt(filepath):
     with open(filepath, "r", encoding="utf-8") as file:
         return file.read()
-
+ 
 def chunk_text(text, chunk_size=500):
     words = text.split()
     chunks = []
@@ -20,12 +20,18 @@ def chunk_text(text, chunk_size=500):
         chunk = " ".join(words[i:i + chunk_size])
         chunks.append(chunk)
     return chunks
-
+ 
 client = chromadb.PersistentClient(path="./chroma_db")
-collection = client.get_or_create_collection(name="firm_documents")
-
+ 
+try:
+    client.delete_collection("firm_documents")
+except Exception:
+    pass  # the collection didn't exist yet, which is fine on the first run
+ 
+collection = client.create_collection(name="firm_documents")
+ 
 documents_folder = "documents"
-
+ 
 for filename in os.listdir(documents_folder):
     filepath = os.path.join(documents_folder, filename)
     
@@ -42,9 +48,10 @@ for filename in os.listdir(documents_folder):
         chunk_id = filename + "_chunk_" + str(i)
         collection.add(
             documents=[chunk],
-            ids=[chunk_id]
+            ids=[chunk_id],
+            metadatas=[{"source": filename}]
         )
     
     print("Processed: " + filename + " (" + str(len(chunks)) + " chunks)")
-
+ 
 print("Knowledge base built successfully.")
