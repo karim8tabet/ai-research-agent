@@ -1,7 +1,8 @@
-from flask import Flask, request, render_template_string, session
+from flask import Flask, request, render_template_string, session, jsonify, send_from_directory
 from dotenv import load_dotenv
 from agent import run_agent, end_session, load_memory
 from database import load_conversation, save_conversation
+from document_store import add_document, list_documents, delete_document, delete_all_documents, shared_document_names
 import markdown
 import nh3
 import os
@@ -9,12 +10,17 @@ import uuid
  
 load_dotenv()
  
-app = Flask(__name__)
+# The React front end (frontend/) is built into frontend/dist.
+# Flask serves its asset files directly, so one server runs the whole app.
+FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+ 
+app = Flask(__name__, static_folder=os.path.join(FRONTEND_DIST, "assets"), static_url_path="/assets")
  
 secret = os.environ.get("FLASK_SECRET_KEY")
 if not secret:
     raise RuntimeError("FLASK_SECRET_KEY is not set. Add it to your .env file before starting the app.")
 app.secret_key = secret
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # uploads are limited to 10 MB
  
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -296,13 +302,23 @@ HTML_PAGE = """
 </html>
 """
  
-@app.route("/", methods=["GET", "POST"])
-def home():
+
+MEMORY_PRIMING_MESSAGES = 2
+MAX_QUESTION_LENGTH = 2000
+ 
+TOOL_LABELS = {
+    "search_web": "Searched the web",
+    "read_webpage": "Read a webpage",
+    "search_documents": "Searched documents",
+}
+ 
+ 
+def get_session_messages():
+    """Return this browser session's ID and its conversation so far."""
     if "session_id" not in session:
         session["session_id"] = str(uuid.uuid4())
-    
     session_id = session["session_id"]
-    
+ 
     messages = load_conversation(session_id)
     if messages is None:
         previous_summary = load_memory()
@@ -310,15 +326,166 @@ def home():
             {"role": "user", "content": "Here is a summary of our previous conversation: " + previous_summary + ". Please keep this in mind as we continue."},
             {"role": "assistant", "content": "Understood, I'll keep that context in mind."}
         ]
+    return session_id, messages
+ 
+ 
+def build_system_prompt(owner_id):
+    """Tell the agent which documents it can search, so it knows when to use search_documents."""
+    shared = ", ".join(shared_document_names()) or "none"
+    uploaded = ", ".join(d["filename"] for d in list_documents(owner_id)) or "none"
+    return ("Your document library contains these shared documents: " + shared + ". "
+            "The user has uploaded: " + uploaded + ". "
+            "Use search_documents for questions about any of these documents.")
+
+
+def render_answer(text):
+    """Turn the agent's Markdown into HTML, then strip anything dangerous with nh3."""
+    html = markdown.markdown(text, extensions=["tables"])
+    return nh3.clean(html)
+ 
+ 
+def field(block, name):
+    """Read a field from a content block.
+    Fresh blocks are Anthropic objects; blocks loaded from SQLite are plain dicts."""
+    if isinstance(block, dict):
+        return block.get(name)
+    return getattr(block, name, None)
+ 
+ 
+def describe_tool_call(block):
+    """A short, human-readable description of one tool call, for the interface."""
+    name = field(block, "name")
+    tool_input = field(block, "input") or {}
+    detail = tool_input.get("url") if name == "read_webpage" else tool_input.get("query")
+    return {"tool": name, "label": TOOL_LABELS.get(name, name), "detail": detail or ""}
+ 
+ 
+def tools_used(messages):
+    """List the tool calls made in a list of messages, in order."""
+    calls = []
+    for message in messages:
+        if message.get("role") != "assistant" or not isinstance(message.get("content"), list):
+            continue
+        for block in message["content"]:
+            if field(block, "type") == "tool_use":
+                calls.append(describe_tool_call(block))
+    return calls
+ 
+ 
+def build_history(messages):
+    """Rebuild the visible chat (questions, answers and the tools behind each answer)
+    from the full conversation the agent sees."""
+    turns = []
+    pending_tools = []
+    for message in messages[MEMORY_PRIMING_MESSAGES:]:
+        content = message.get("content")
+        if message.get("role") == "user":
+            if isinstance(content, str):  # a real question; lists are tool results
+                turns.append({"role": "user", "text": content})
+            continue
+ 
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+        tool_blocks = [b for b in blocks if field(b, "type") == "tool_use"]
+        if tool_blocks:
+            pending_tools.extend(describe_tool_call(b) for b in tool_blocks)
+            continue
+ 
+        text = "".join(field(b, "text") or "" for b in blocks if field(b, "type") == "text")
+        turns.append({"role": "agent", "html": render_answer(text), "tools": pending_tools})
+        pending_tools = []
+    return turns
+
+@app.route("/api/history", methods=["GET"])
+def api_history():
+    _, messages = get_session_messages()
+    return jsonify({"turns": build_history(messages)})
+ 
+ 
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    if not request.is_json:
+        return jsonify({"error": "Requests must be sent as JSON."}), 415
+ 
+    question = (request.get_json(silent=True) or {}).get("question", "")
+    if not isinstance(question, str) or not question.strip():
+        return jsonify({"error": "Please type a question."}), 400
+    question = question.strip()
+    if len(question) > MAX_QUESTION_LENGTH:
+        return jsonify({"error": "Questions are limited to " + str(MAX_QUESTION_LENGTH) + " characters."}), 400
+ 
+    session_id, messages = get_session_messages()
+    start = len(messages)
+    raw_answer, messages = run_agent(question, messages, session_id, build_system_prompt(session_id))
+    save_conversation(session_id, messages)
+ 
+    return jsonify({
+        "answer_html": render_answer(raw_answer),
+        "tools": tools_used(messages[start:]),
+    })
+ 
+ 
+@app.route("/api/end_session", methods=["POST"])
+def api_end_session():
+    if not request.is_json:
+        return jsonify({"error": "Requests must be sent as JSON."}), 415
+    session_id, messages = get_session_messages()
+    message = end_session(messages)
+    delete_all_documents(session_id)  # uploads only last until the session ends
+    return jsonify({"message": message})
+
+
+@app.route("/api/documents", methods=["GET"])
+def api_list_documents():
+    session_id, _ = get_session_messages()
+    return jsonify({"shared": shared_document_names(), "documents": list_documents(session_id)})
+
+
+@app.route("/api/documents", methods=["POST"])
+def api_upload_document():
+    # File uploads can't be required to be JSON, so a custom header plays the same role:
+    # another website can't add this header to a request without permission this server never grants.
+    if request.headers.get("X-Requested-With") != "fetch":
+        return jsonify({"error": "Missing request header."}), 400
+    uploaded = request.files.get("file")
+    if uploaded is None or not uploaded.filename:
+        return jsonify({"error": "Please choose a file."}), 400
+
+    session_id, _ = get_session_messages()
+    try:
+        document = add_document(session_id, uploaded.filename, uploaded.read())
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify({"document": document}), 201
+
+
+@app.route("/api/documents/<doc_id>", methods=["DELETE"])
+def api_delete_document(doc_id):
+    session_id, _ = get_session_messages()
+    delete_document(session_id, doc_id)
+    return jsonify({"deleted": doc_id})
+
+
+@app.errorhandler(413)
+def file_too_large(error):
+    return jsonify({"error": "Files are limited to 10 MB."}), 413
+ 
+ 
+ 
+@app.route("/", methods=["GET", "POST"])
+def home():
+    index_file = os.path.join(FRONTEND_DIST, "index.html")
+    if request.method == "GET" and os.path.exists(index_file):
+        return send_from_directory(FRONTEND_DIST, "index.html")
+ 
+    session_id, messages = get_session_messages()
     
     answer = None
     if request.method == "POST":
         question = request.form.get("question", "").strip()
         if not question:
             return render_template_string(HTML_PAGE, answer=None)
-        raw_answer, messages = run_agent(question, messages)
-        html = markdown.markdown(raw_answer, extensions=["tables"])
-        answer = nh3.clean(html)
+        raw_answer, messages = run_agent(question, messages, session_id, build_system_prompt(session_id))
+        answer = render_answer(raw_answer)
         save_conversation(session_id, messages)
     
     return render_template_string(HTML_PAGE, answer=answer)
@@ -328,7 +495,10 @@ def end_session_route():
     session_id = session.get("session_id")
     messages = load_conversation(session_id)
     memory_message = end_session(messages if messages else [])
+    if session_id:
+        delete_all_documents(session_id)
     return render_template_string(HTML_PAGE, answer=None, memory_message=memory_message)
  
 if __name__ == "__main__":
     app.run(debug=False)
+    

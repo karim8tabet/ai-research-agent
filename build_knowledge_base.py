@@ -49,7 +49,7 @@ for filename in os.listdir(documents_folder):
         collection.add(
             documents=[chunk],
             ids=[chunk_id],
-            metadatas=[{"source": filename}]
+            metadatas=[{"source": filename, "owner": "shared"}]
         )
     
     print("Processed: " + filename + " (" + str(len(chunks)) + " chunks)")

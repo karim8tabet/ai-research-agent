@@ -84,10 +84,15 @@ def read_webpage(url):
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 document_collection = chroma_client.get_or_create_collection(name="firm_documents")
  
-def search_documents(query):
+def search_documents(query, owner_id=None):
+    # Everyone can search shared documents; uploads are only searchable by the visitor who added them.
+    allowed_owners = ["shared"]
+    if owner_id:
+        allowed_owners.append(owner_id)
     results = document_collection.query(
         query_texts=[query],
-        n_results=3
+        n_results=3,
+        where={"owner": {"$in": allowed_owners}}
     )
     
     chunks = results["documents"][0]
@@ -124,7 +129,7 @@ tools = [
     },
     {
         "name": "search_documents",
-        "description": "Search the firm's internal documents for relevant information. Use this when the question is about specific company data, filings, policies, or internal information that wouldn't be found through a general web search.",
+        "description": "Search the private document library: shared documents plus any documents the user has uploaded. Use this when the question is about the contents of those documents, or about specific company data, filings or policies that wouldn't be found through a general web search.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -138,7 +143,7 @@ tools = [
     }
 ]
  
-def run_agent(user_input, messages):
+def run_agent(user_input, messages, owner_id=None, system_prompt=None):
     messages.append({"role": "user", "content": user_input})
     
     max_iterations = 5
@@ -150,12 +155,15 @@ def run_agent(user_input, messages):
             return "I wasn't able to finish this within a reasonable number of steps. Could you try rephrasing your question?", messages
         
         try:
-            response = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=1024,
-                tools=tools,
-                messages=messages
-            )
+            request_options = {
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 1024,
+                "tools": tools,
+                "messages": messages,
+            }
+            if system_prompt:
+                request_options["system"] = system_prompt
+            response = client.messages.create(**request_options)
         except Exception as e:
             print("Claude API call failed: " + str(e))
             return "Sorry, something went wrong talking to Claude. Please try again.", messages
@@ -180,7 +188,7 @@ def run_agent(user_input, messages):
                         elif block.name == "search_documents":
                             doc_query = block.input["query"]
                             print("Searching documents: " + doc_query)
-                            doc_results = search_documents(doc_query)
+                            doc_results = search_documents(doc_query, owner_id)
                             tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": doc_results})
                     except Exception as e:
                         print("TOOL FAILED: " + block.name + " - " + str(e))
