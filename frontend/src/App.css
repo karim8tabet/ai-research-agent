@@ -1,0 +1,148 @@
+/* Same look as the original Flask page, adapted to the React components. */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+  background: #fff;
+  color: #111;
+}
+
+.app {
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+/* Header */
+header { padding: 28px 32px 20px; border-bottom: 1px solid #ebebeb; }
+header h1 {
+  font-size: 0.8rem; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #999;
+}
+
+/* Thread */
+#thread { overflow-y: auto; padding: 0 32px; display: flex; flex-direction: column; }
+#thread::-webkit-scrollbar { width: 0; }
+
+.empty { padding: 28px 0; color: #aaa; font-size: 0.93rem; line-height: 1.6; }
+
+.turn { padding: 28px 0; border-bottom: 1px solid #f2f2f2; }
+.turn:last-of-type { border-bottom: none; }
+
+.turn-label {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; margin-bottom: 10px;
+}
+.turn.user .turn-label { color: #bbb; }
+.turn.agent .turn-label { color: #111; }
+
+.turn-body { font-size: 0.97rem; line-height: 1.72; color: #222; overflow-wrap: anywhere; }
+.turn.user .turn-body { color: #666; font-size: 0.93rem; white-space: pre-wrap; }
+
+.turn-body p { margin-bottom: 10px; }
+.turn-body p:last-child { margin-bottom: 0; }
+.turn-body h1, .turn-body h2, .turn-body h3 { font-weight: 600; margin: 16px 0 6px; letter-spacing: -0.01em; }
+.turn-body ul, .turn-body ol { margin: 8px 0 10px 18px; }
+.turn-body li { margin-bottom: 4px; }
+.turn-body a { color: #111; }
+.turn-body code {
+  font-family: "SF Mono", "Fira Code", Consolas, monospace; font-size: 0.83em;
+  background: #f5f5f5; border-radius: 4px; padding: 2px 6px;
+}
+.turn-body pre { background: #f5f5f5; border-radius: 8px; padding: 16px; overflow-x: auto; margin: 12px 0; }
+.turn-body pre code { background: none; padding: 0; font-size: 0.88em; }
+.turn-body table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9em; display: block; overflow-x: auto; }
+.turn-body th, .turn-body td { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
+.turn-body th { background: #fafafa; font-weight: 600; }
+
+/* Research steps (which tools the agent used) */
+.tool-steps { margin-bottom: 12px; }
+.tool-toggle {
+  background: none; border: 1px solid #e6e6e6; border-radius: 999px;
+  padding: 4px 12px; font: inherit; font-size: 0.75rem; color: #888;
+  cursor: pointer; transition: border-color 0.15s, color 0.15s;
+}
+.tool-toggle:hover { border-color: #bbb; color: #333; }
+.tool-list { list-style: none; margin-top: 10px; border-left: 2px solid #eee; padding-left: 14px; }
+.tool-list li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  font-size: 0.82rem; line-height: 1.5; padding: 3px 0;
+}
+.tool-icon { width: 14px; color: #999; text-align: center; }
+.tool-label { font-weight: 600; color: #444; }
+.tool-detail { color: #999; overflow-wrap: anywhere; }
+
+/* Thinking indicator */
+.thinking { display: flex; align-items: center; gap: 12px; }
+.thinking-text { font-size: 0.82rem; color: #aaa; }
+.dots { display: flex; gap: 5px; }
+.dots span {
+  width: 6px; height: 6px; background: #ccc; border-radius: 50%;
+  animation: pulse 1.4s infinite;
+}
+.dots span:nth-child(2) { animation-delay: 0.2s; }
+.dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+/* Input area */
+footer { border-top: 1px solid #ebebeb; padding: 20px 32px; }
+.error { font-size: 0.8rem; color: #b42318; margin-bottom: 12px; }
+.compose { display: flex; align-items: center; gap: 12px; }
+.compose input[type="text"] {
+  flex: 1; min-width: 0; border: none; outline: none; font-size: 0.97rem;
+  font-family: inherit; color: #111; background: transparent; padding: 4px 0;
+}
+.compose input::placeholder { color: #ccc; }
+.compose button[type="submit"] {
+  background: #111; color: #fff; border: none; border-radius: 8px;
+  padding: 9px 18px; font-size: 0.82rem; font-weight: 600; font-family: inherit;
+  letter-spacing: 0.02em; cursor: pointer; transition: background 0.15s; white-space: nowrap;
+}
+.compose button[type="submit"]:hover:not(:disabled) { background: #333; }
+.compose button[type="submit"]:disabled { background: #ccc; cursor: default; }
+
+.footer-meta { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.btn-end {
+  background: none; border: none; font-size: 0.75rem; color: #bbb;
+  font-family: inherit; cursor: pointer; padding: 0; transition: color 0.15s;
+}
+.btn-end:hover:not(:disabled) { color: #777; }
+.btn-end:disabled { cursor: default; }
+.status-msg { font-size: 0.75rem; color: #999; }
+
+@media (max-width: 520px) {
+  header, #thread, footer { padding-left: 16px; padding-right: 16px; }
+}
+
+/* Documents panel */
+.documents { margin-bottom: 14px; }
+.documents-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.documents-title {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: #bbb; margin-right: 4px;
+}
+.doc-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
+  background: #f5f5f5; border-radius: 999px; padding: 3px 6px 3px 10px;
+  font-size: 0.75rem; color: #444;
+}
+.doc-chip.shared { padding-right: 10px; color: #888; }
+.doc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-remove {
+  background: none; border: none; cursor: pointer; color: #aaa;
+  font-size: 0.95rem; line-height: 1; padding: 0 2px;
+}
+.doc-remove:hover { color: #b42318; }
+.doc-upload {
+  background: none; border: 1px dashed #d6d6d6; border-radius: 999px;
+  padding: 3px 10px; font: inherit; font-size: 0.75rem; color: #888; cursor: pointer;
+}
+.doc-upload:hover:not(:disabled) { border-color: #999; color: #333; }
+.doc-upload:disabled { cursor: default; }
+.documents-note { margin-top: 6px; font-size: 0.7rem; color: #bbb; }
