@@ -1,13 +1,21 @@
 from flask import Flask, request, render_template_string, session
+from dotenv import load_dotenv
 from agent import run_agent, end_session, load_memory
 from database import load_conversation, save_conversation
 import markdown
+import nh3
 import os
 import uuid
-
+ 
+load_dotenv()
+ 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY")
-
+ 
+secret = os.environ.get("FLASK_SECRET_KEY")
+if not secret:
+    raise RuntimeError("FLASK_SECRET_KEY is not set. Add it to your .env file before starting the app.")
+app.secret_key = secret
+ 
 HTML_PAGE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -17,7 +25,7 @@ HTML_PAGE = """
     <title>Research Agent</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+ 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
             background: #fff;
@@ -28,7 +36,7 @@ HTML_PAGE = """
             max-width: 680px;
             margin: 0 auto;
         }
-
+ 
         /* ── Header ── */
         header {
             padding: 28px 32px 20px;
@@ -41,7 +49,7 @@ HTML_PAGE = """
             text-transform: uppercase;
             color: #999;
         }
-
+ 
         /* ── Thread ── */
         #thread {
             overflow-y: auto;
@@ -50,13 +58,13 @@ HTML_PAGE = """
             flex-direction: column;
         }
         #thread::-webkit-scrollbar { width: 0; }
-
+ 
         .turn {
             padding: 28px 0;
             border-bottom: 1px solid #f2f2f2;
         }
         .turn:last-child { border-bottom: none; }
-
+ 
         .turn-label {
             font-size: 0.7rem;
             font-weight: 700;
@@ -66,7 +74,7 @@ HTML_PAGE = """
         }
         .turn.user .turn-label { color: #bbb; }
         .turn.agent .turn-label { color: #111; }
-
+ 
         .turn-body {
             font-size: 0.97rem;
             line-height: 1.72;
@@ -76,7 +84,7 @@ HTML_PAGE = """
             color: #666;
             font-size: 0.93rem;
         }
-
+ 
         .turn-body p { margin-bottom: 10px; }
         .turn-body p:last-child { margin-bottom: 0; }
         .turn-body h1, .turn-body h2, .turn-body h3 {
@@ -104,7 +112,7 @@ HTML_PAGE = """
         .turn-body table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9em; }
         .turn-body th, .turn-body td { border: 1px solid #e8e8e8; padding: 8px 12px; text-align: left; }
         .turn-body th { background: #fafafa; font-weight: 600; }
-
+ 
         /* Thinking dots */
         .thinking {
             display: none;
@@ -132,7 +140,7 @@ HTML_PAGE = """
             0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
             40% { opacity: 1; transform: scale(1); }
         }
-
+ 
         /* ── Input ── */
         footer {
             border-top: 1px solid #ebebeb;
@@ -169,7 +177,7 @@ HTML_PAGE = """
             white-space: nowrap;
         }
         .compose button[type="submit"]:hover { background: #333; }
-
+ 
         .footer-meta {
             margin-top: 12px;
             display: flex;
@@ -192,18 +200,18 @@ HTML_PAGE = """
 </head>
 <body>
     <div id="server-answer" style="display:none">{{ answer | safe if answer else '' }}</div>
-
+ 
     <header>
         <h1>Research Agent</h1>
     </header>
-
+ 
     <div id="thread">
         <div class="thinking" id="thinking">
             <div class="thinking-label">Agent</div>
             <div class="dots"><span></span><span></span><span></span></div>
         </div>
     </div>
-
+ 
     <footer>
         <form method="POST" action="/" id="ask-form">
             <div class="compose">
@@ -220,7 +228,7 @@ HTML_PAGE = """
             {% endif %}
         </div>
     </footer>
-
+ 
     <script>
     (function () {
         const STORAGE_KEY = 'agent_thread_v2';
@@ -229,13 +237,13 @@ HTML_PAGE = """
         const form = document.getElementById('ask-form');
         const input = document.getElementById('question-input');
         const serverAnswer = document.getElementById('server-answer').innerHTML.trim();
-
+ 
         function load() {
             try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
             catch { return []; }
         }
         function save(h) { localStorage.setItem(STORAGE_KEY, JSON.stringify(h)); }
-
+ 
         function addTurn(role, html, prepend) {
             const div = document.createElement('div');
             div.className = 'turn ' + role;
@@ -247,13 +255,13 @@ HTML_PAGE = """
                 thread.insertBefore(div, thinking);
             }
         }
-
+ 
         function scrollBottom() { thread.scrollTop = thread.scrollHeight; }
-
+ 
         let history = load();
         history.forEach(m => addTurn(m.role, m.html, false));
         scrollBottom();
-
+ 
         if (serverAnswer) {
             const pending = localStorage.getItem('agent_pending');
             localStorage.removeItem('agent_pending');
@@ -267,7 +275,7 @@ HTML_PAGE = """
             save(history);
             scrollBottom();
         }
-
+ 
         form.addEventListener('submit', function () {
             const q = input.value.trim();
             if (!q) return;
@@ -279,7 +287,7 @@ HTML_PAGE = """
             thinking.classList.add('visible');
             scrollBottom();
             // Disable input so it's clear something is happening
-            input.disabled = true;
+            input.readOnly = true;
             form.querySelector('button').disabled = true;
         });
     })();
@@ -287,7 +295,7 @@ HTML_PAGE = """
 </body>
 </html>
 """
-
+ 
 @app.route("/", methods=["GET", "POST"])
 def home():
     if "session_id" not in session:
@@ -305,19 +313,22 @@ def home():
     
     answer = None
     if request.method == "POST":
-        question = request.form["question"]
+        question = request.form.get("question", "").strip()
+        if not question:
+            return render_template_string(HTML_PAGE, answer=None)
         raw_answer, messages = run_agent(question, messages)
-        answer = markdown.markdown(raw_answer, extensions=["tables"])
+        html = markdown.markdown(raw_answer, extensions=["tables"])
+        answer = nh3.clean(html)
         save_conversation(session_id, messages)
     
     return render_template_string(HTML_PAGE, answer=answer)
-
+ 
 @app.route("/end_session", methods=["POST"])
 def end_session_route():
     session_id = session.get("session_id")
     messages = load_conversation(session_id)
     memory_message = end_session(messages if messages else [])
     return render_template_string(HTML_PAGE, answer=None, memory_message=memory_message)
-
+ 
 if __name__ == "__main__":
     app.run(debug=False)

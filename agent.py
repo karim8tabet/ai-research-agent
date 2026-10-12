@@ -6,19 +6,20 @@ from dotenv import load_dotenv
 from memory import load_memory, save_memory
 import chromadb
 import ipaddress
-from urllib.parse import urlparse
-
+import socket
+from urllib.parse import urlparse, urljoin
+ 
 load_dotenv()
-
+ 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-
+ 
 previous_summary = load_memory()
-
+ 
 messages = [
     {"role": "user", "content": "Here is a summary of our previous conversation: " + previous_summary + ". Please keep this in mind as we continue."},
     {"role": "assistant", "content": "Understood, I'll keep that context in mind."}
 ]
-
+ 
 def search_web(query):
     try:
         url = "https://google.serper.dev/search"
@@ -39,24 +40,37 @@ def search_web(query):
     except Exception as e:
         print("Search failed: " + str(e))
         return "The web search failed, so I don't have current information on this. I'll answer based on what I already know."
-
+ 
+def is_safe_url(url):
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        return False  # the hostname doesn't resolve at all
+    for address in addresses:
+        ip = ipaddress.ip_address(address[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
+ 
 def read_webpage(url):
     try:
-        parsed = urlparse(url)
-        
-        if parsed.scheme not in ("http", "https"):
-            return "This URL scheme is not allowed."
-        
-        hostname = parsed.hostname
-        try:
-            ip = ipaddress.ip_address(hostname)
-            if ip.is_private or ip.is_loopback or ip.is_link_local:
-                return "This URL points to a restricted internal address and cannot be accessed."
-        except ValueError:
-            pass
-        
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=10)
+        
+        # Follow redirects manually so every hop gets the same safety check
+        for _ in range(3):
+            if not is_safe_url(url):
+                return "This URL points to a restricted or invalid address and cannot be accessed."
+            response = requests.get(url, headers=headers, timeout=10, allow_redirects=False)
+            if response.is_redirect:
+                url = urljoin(url, response.headers["Location"])
+                continue
+            break
+        else:
+            return "This webpage redirected too many times and could not be read."
         
         soup = BeautifulSoup(response.text, "html.parser")
         paragraphs = soup.find_all("p")
@@ -69,7 +83,7 @@ def read_webpage(url):
     
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 document_collection = chroma_client.get_or_create_collection(name="firm_documents")
-
+ 
 def search_documents(query):
     results = document_collection.query(
         query_texts=[query],
@@ -77,9 +91,14 @@ def search_documents(query):
     )
     
     chunks = results["documents"][0]
-    return "\n\n".join(chunks)
-
-
+    sources = results["metadatas"][0]
+    labeled = []
+    for chunk, meta in zip(chunks, sources):
+        source = meta.get("source", "unknown") if meta else "unknown"
+        labeled.append("[From " + source + "]\n" + chunk)
+    return "\n\n".join(labeled)
+ 
+ 
 tools = [
     {
         "name": "search_web",
@@ -118,7 +137,7 @@ tools = [
         }
     }
 ]
-
+ 
 def run_agent(user_input, messages):
     messages.append({"role": "user", "content": user_input})
     
@@ -171,7 +190,7 @@ def run_agent(user_input, messages):
         else:
             reply = response.content[0].text
             return reply, messages
-
+ 
 def end_session(messages):
     summary_request = messages + [{"role": "user", "content": "Summarize everything important from this conversation in 2-3 sentences, focused on facts worth remembering for next time."}]
     
